@@ -1,0 +1,10 @@
+version: '3.0'
+services:
+  java-service:
+    build: .
+    ports:
+      - 8082:8080
+    volumes:
+      - java-vol:/src/myapp
+volumes:
+  java-vol:
