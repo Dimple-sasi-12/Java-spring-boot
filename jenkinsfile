@@ -1,27 +1,84 @@
+def COLOR_MAP = [
+    'SUCCESS': 'good',
+    'FAILURE': 'danger'
+]
+
 pipeline {
     agent any
+    environment {
+        SCANNER_HOME = tool 'sonarqube'
+    }
     stages {
-        stage('git checkout') {
+        stage('clean-workspace') {
             steps {
-                git 'https://github.com/Sushmaa123/Java-Springboot.git'
+                cleanWs  ()
             }
         }
-        stage('build') {
+        stage('Git Checkout') {
             steps {
-                bat 'mvn clean install'
+                git branch: 'branch1', url: 'https://github.com/Dimple-sasi-12/Java-spring-boot.git'
             }
         }
-        stage('test') {
+        stage('Compile') {
             steps {
-                echo 'this is test phase'
+                sh 'mvn clean compile'
             }
         }
-        stage('deploy') {
+        stage('Code Analysis') {
             steps {
-                echo 'this is deploy phase'
+                withSonarQubeEnv('sonarqube') {
+                    sh ''' 
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectName=ci-cd \
+                        -Dsonar.java.binaries=. \
+                        -Dsonar.projectKey=ci-cd
+                    '''
+                }
+            }
+        }
+        stage('trivy-scan file') {
+            steps {
+                sh 'trivy fs --security-checks vuln --severity HIGH,CRITICAL -f json -o file-trivy-scan.json .'
+            }
+        }
+        stage('Remove Containers and Images') {
+            steps {
+                sh 'docker stop $(docker ps -q) || true'
+                sh 'docker rm $(docker ps -aq) || true'
+                sh 'docker rmi $(docker images -q) || true'
+            }
+        }
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t bunny2003/java-spring .'
+            }
+        }
+        stage('trivy-scan images') {
+            steps {
+                sh 'trivy --severity LOW,MEDIUM -f table -o image-scan.html bunny2003/java-spring'
+            }
+        }
+        stage('Docker Push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-credential', toolName: 'docker')  {
+                    sh 'docker push bunny2003/java-spring'
+                    }
+                }
+            }
+        }
+        stage('Docker Run Container') {
+            steps {
+                sh 'docker run -itd -p 8085:8081 bunny2003/java-spring'
             }
         }
     }
+    post {
+        always {
+            echo 'Slack Notification.'
+            slackSend channel: '#dev-team',
+                color: COLOR_MAP[currentBuild.currentResult],
+                message: "*${currentBuild.currentResult}:* Job ${env.JOB_NAME} build ${env.BUILD_NUMBER} \n More info at: ${env.BUILD_URL}"
+        }
+    }
 }
-
-    
